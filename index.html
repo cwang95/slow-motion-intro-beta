@@ -104,7 +104,7 @@ let rtB = new THREE.WebGLRenderTarget(width,height,options);
 
 // ---- Load Image ----
 const loader = new THREE.TextureLoader();
-const imageTexture = await loader.loadAsync('your-image.jpg'); // <- Replace with your image path
+const imageTexture = await loader.loadAsync('image.png'); // <- Replace with your image path
 imageTexture.minFilter = THREE.LinearFilter;
 imageTexture.magFilter = THREE.LinearFilter;
 

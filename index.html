@@ -1,34 +1,180 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8"/>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-        <title>SlowMotion Water Simulation</title>
-        <link rel="stylesheet" href="./styles.css"/>
-    </head>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slow Motion Intro</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
 
-    <body>
-        <nav>
-            <div class="logo">
-                <p>Slow Motion</p>
-            </div>
-            <div class="nav-items">
-                <p>Product</p>
-                <p>Concept</p>
-                <p>Partners</p>
-                <button>Try now</button>
-            </div>
-        </nav>
+<script type="module">
 
-        <footer>
-            <h1>Join  us! For good times!</h1>
+// ---- Import Three.js from CDN ----
+import * as THREE from 'https://unpkg.com/three@0.164.0/build/three.module.js';
 
-            <div class="footer-links">
-                <p>Sign up</p>
-                <p>Log in</p>
-            </div>
-        </footer>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-        <script src="./script.js" type="module"></script>
-    </body>
+// ---- Shaders ----
+const simulationVertexShader = `
+out vec2 vUv;
+void main() {
+    vUv = position.xy * 0.5 + 0.5;
+    gl_Position = vec4(position,1.0);
+}
+`;
+
+const simulationFragmentShader = `
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D iChannel0;
+uniform vec2 iResolution;
+uniform vec3 iMouse;
+uniform float delta;
+void main() {
+    ivec2 fragCoord = ivec2(vUv * iResolution);
+    vec4 state = texelFetch(iChannel0, fragCoord, 0);
+    float pressure = state.x;
+    float pVel = state.y;
+    float pRight = texelFetch(iChannel0, fragCoord + ivec2(1,0),0).x;
+    float pLeft  = texelFetch(iChannel0, fragCoord + ivec2(-1,0),0).x;
+    float pUp    = texelFetch(iChannel0, fragCoord + ivec2(0,1),0).x;
+    float pDown  = texelFetch(iChannel0, fragCoord + ivec2(0,-1),0).x;
+    if(fragCoord.x==0)pLeft=pRight;
+    if(fragCoord.x==int(iResolution.x)-1)pRight=pLeft;
+    if(fragCoord.y==0)pDown=pUp;
+    if(fragCoord.y==int(iResolution.y)-1)pUp=pDown;
+    pVel += delta*(-2.0*pressure+pRight+pLeft)*0.25;
+    pVel += delta*(-2.0*pressure+pUp+pDown)*0.25;
+    pressure += delta*pVel;
+    pVel -= 0.005*delta*pressure;
+    pVel *= 0.998;
+    pressure *= 0.999;
+    if(iMouse.z>0.0){
+        float dist=distance(vec2(fragCoord),iMouse.xy);
+        if(dist<20.0) pressure += 1.0 - dist/20.0;
+    }
+    fragColor = vec4(pressure,pVel,(pRight-pLeft)*0.5,(pUp-pDown)*0.5);
+}
+`;
+
+const renderVertexShader = `
+out vec2 vUv;
+void main(){
+    vUv = position.xy * 0.5 + 0.5;
+    gl_Position = vec4(position,1.0);
+}
+`;
+
+const renderFragmentShader = `
+precision highp float;
+in vec2 vUv;
+out vec4 fragColor;
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
+uniform vec2 iResolution;
+void main(){
+    vec4 sim = texture(iChannel0,vUv);
+    vec2 displacedUv = vUv + 0.2*sim.zw;
+    vec4 color = texture(iChannel1, displacedUv);
+    vec3 normal = normalize(vec3(-sim.z,0.2,-sim.w));
+    vec3 lightDir = normalize(vec3(-3.0,10.0,3.0));
+    float spec = pow(max(0.0,dot(normal,lightDir)),60.0);
+    fragColor = color + vec4(vec3(spec),0.0);
+}
+`;
+
+// ---- Renderer & Scene ----
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const camera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+
+const width = window.innerWidth*window.devicePixelRatio;
+const height = window.innerHeight*window.devicePixelRatio;
+
+// ---- Render Targets ----
+const options = { format: THREE.RGBAFormat, type: THREE.FloatType, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter };
+let rtA = new THREE.WebGLRenderTarget(width,height,options);
+let rtB = new THREE.WebGLRenderTarget(width,height,options);
+
+// ---- Load Image ----
+const loader = new THREE.TextureLoader();
+const imageTexture = await loader.loadAsync('your-image.jpg'); // <- Replace with your image path
+imageTexture.minFilter = THREE.LinearFilter;
+imageTexture.magFilter = THREE.LinearFilter;
+
+// ---- Mouse ----
+const mouse = new THREE.Vector3();
+renderer.domElement.addEventListener("mousemove", e => {
+    mouse.x = e.clientX*window.devicePixelRatio;
+    mouse.y = (window.innerHeight-e.clientY)*window.devicePixelRatio;
+    mouse.z = 1.0;
+});
+renderer.domElement.addEventListener("mouseleave",()=>mouse.z=0.0);
+
+// ---- Simulation ----
+const simMaterial = new THREE.ShaderMaterial({
+    vertexShader: simulationVertexShader,
+    fragmentShader: simulationFragmentShader,
+    uniforms: {
+        iChannel0: { value: rtA.texture },
+        iResolution: { value: new THREE.Vector2(width,height) },
+        iMouse: { value: mouse },
+        delta: { value: 1.0 }
+    },
+    glslVersion: THREE.GLSL3
+});
+
+const simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), simMaterial);
+const simScene = new THREE.Scene();
+simScene.add(simQuad);
+
+// ---- Render ----
+const renderMaterial = new THREE.ShaderMaterial({
+    vertexShader: renderVertexShader,
+    fragmentShader: renderFragmentShader,
+    uniforms: {
+        iChannel0: { value: rtB.texture },
+        iChannel1: { value: imageTexture },
+        iResolution: { value: new THREE.Vector2(width,height) }
+    },
+    glslVersion: THREE.GLSL3
+});
+
+const renderQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), renderMaterial);
+const scene = new THREE.Scene();
+scene.add(renderQuad);
+
+// ---- Animate ----
+function animate(){
+    simMaterial.uniforms.iChannel0.value = rtA.texture;
+    renderer.setRenderTarget(rtB);
+    renderer.render(simScene,camera);
+    renderMaterial.uniforms.iChannel0.value = rtB.texture;
+    renderer.setRenderTarget(null);
+    renderer.render(scene,camera);
+    [rtA,rtB] = [rtB,rtA];
+    requestAnimationFrame(animate);
+}
+animate();
+
+// ---- Resize ----
+window.addEventListener('resize',()=>{
+    const w = window.innerWidth*window.devicePixelRatio;
+    const h = window.innerHeight*window.devicePixelRatio;
+    renderer.setSize(window.innerWidth,window.innerHeight);
+    rtA.setSize(w,h);
+    rtB.setSize(w,h);
+    simMaterial.uniforms.iResolution.value.set(w,h);
+    renderMaterial.uniforms.iResolution.value.set(w,h);
+});
+
+</script>
+
+</body>
 </html>

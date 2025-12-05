@@ -117,6 +117,27 @@ renderer.domElement.addEventListener("mousemove", e => {
 });
 renderer.domElement.addEventListener("mouseleave",()=>mouse.z=0.0);
 
+// ---- Touch ----
+// Touch support
+renderer.domElement.addEventListener("touchstart", e => {
+    const touch = e.touches[0];
+    mouse.x = touch.clientX * window.devicePixelRatio;
+    mouse.y = (window.innerHeight - touch.clientY) * window.devicePixelRatio;
+    mouse.z = 1.0;
+});
+
+renderer.domElement.addEventListener("touchmove", e => {
+    e.preventDefault(); // prevent scrolling
+    const touch = e.touches[0];
+    mouse.x = touch.clientX * window.devicePixelRatio;
+    mouse.y = (window.innerHeight - touch.clientY) * window.devicePixelRatio;
+    mouse.z = 1.0;
+}, { passive: false });
+
+renderer.domElement.addEventListener("touchend", e => {
+    mouse.z = 0.0;
+});
+
 // ---- Simulation ----
 const simMaterial = new THREE.ShaderMaterial({
     vertexShader: simulationVertexShader,

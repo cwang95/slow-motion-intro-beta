@@ -1,402 +1,221 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Water Effect — image + text (mobile-friendly)</title>
-    <style>
-        :root {
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        html,
-        body {
-            height: 100%;
-            margin: 0;
-            background: #000;
-        }
-
-        /* renderer canvas will be appended by Three.js */
-        canvas {
-            display: block;
-            position: fixed;
-            inset: 0;
-            width: 100%;
-            height: 100%;
-            touch-action: none;
-        }
-
-        /* (optional) a fallback message */
-        .no-webgl {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-family: system-ui, sans-serif;
-            background: #000;
-        }
-    </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Water Effect — image + text (mobile-friendly)</title>
+<style>
+    html, body { height:100%; margin:0; background:#000; }
+    canvas { display:block; position:fixed; inset:0; width:100%; height:100%; touch-action:none; }
+    .no-webgl { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-family:system-ui,sans-serif; background:#000; }
+</style>
 </head>
-
 <body>
+<div id="fallback" class="no-webgl" style="display:none;">Your browser doesn't support WebGL2.</div>
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.164.0/build/three.module.js';
 
-    <div id="fallback" class="no-webgl" style="display:none;">Your browser doesn't support the necessary WebGL features.
-    </div>
-
-    <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.164.0/build/three.module.js';
-
-        /* ===========================================================
-           Shaders (GLSL3 semantics will be enabled via glslVersion)
-           Vertex shaders intentionally do NOT redeclare `position`
-           (Three.js provides it) to avoid the 'position redefinition' error.
-           =========================================================== */
-
-        // Simulation (Buffer) vertex shader
-        const simVertex = `
-out vec2 vUv;
-void main() {
-  vUv = position.xy * 0.5 + 0.5;
-  gl_Position = vec4(position, 1.0);
-}
-`;
-
-        // Simulation (Buffer) fragment shader — port of BufferA
-        const simFragment = `
+/* ============ Shaders ============ */
+const simVertex = `out vec2 vUv; void main(){vUv=position.xy*0.5+0.5; gl_Position=vec4(position,1.0);}`;
+const simFragment = `
 precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
-
-uniform sampler2D iChannel0; // previous frame
+uniform sampler2D iChannel0;
 uniform vec2 iResolution;
-uniform vec3 iMouse; // xy position in drawing-buffer pixels, z = isDown
+uniform vec3 iMouse;
 uniform float delta;
 
 void main() {
-  ivec2 coord = ivec2(vUv * iResolution);
+  ivec2 coord = ivec2(vUv*iResolution);
   vec4 state = texelFetch(iChannel0, coord, 0);
-  float P = state.x;
-  float V = state.y;
+  float P = state.x; float V = state.y;
 
-  float pr = texelFetch(iChannel0, coord + ivec2(1,0), 0).x;
-  float pl = texelFetch(iChannel0, coord + ivec2(-1,0), 0).x;
-  float pu = texelFetch(iChannel0, coord + ivec2(0,1), 0).x;
-  float pd = texelFetch(iChannel0, coord + ivec2(0,-1), 0).x;
+  float pr = texelFetch(iChannel0, coord+ivec2(1,0),0).x;
+  float pl = texelFetch(iChannel0, coord+ivec2(-1,0),0).x;
+  float pu = texelFetch(iChannel0, coord+ivec2(0,1),0).x;
+  float pd = texelFetch(iChannel0, coord+ivec2(0,-1),0).x;
 
-  if(coord.x == 0) pr = pl;
-  if(coord.x == int(iResolution.x)-1) pl = pr;
-  if(coord.y == 0) pu = pd;
-  if(coord.y == int(iResolution.y)-1) pd = pu;
+  if(coord.x==0) pr=pl; if(coord.x==int(iResolution.x)-1) pl=pr;
+  if(coord.y==0) pu=pd; if(coord.y==int(iResolution.y)-1) pd=pu;
 
-  V += delta * (-2.0 * P + pr + pl) * 0.25;
-  V += delta * (-2.0 * P + pu + pd) * 0.25;
-
-  P += delta * V;
-  V -= 0.005 * delta * P;
+  V += delta*(-2.0*P+pr+pl)*0.25;
+  V += delta*(-2.0*P+pu+pd)*0.25;
+  P += delta*V;
+  V -= 0.005*delta*P;
   V *= 0.998;
   P *= 0.999;
 
-  if(iMouse.z > 0.0) {
-    // iMouse.xy expected in drawing-buffer pixel coords
+  if(iMouse.z>0.0){
     float d = distance(vec2(coord), iMouse.xy);
-    if(d < 20.0) {
-      P += 1.0 - d / 20.0;
-    }
+    if(d<20.0) P += 1.0-d/20.0;
   }
+  fragColor = vec4(P,V,(pr-pl)*0.5,(pu-pd)*0.5);
+}`;
 
-  fragColor = vec4(P, V, (pr - pl) * 0.5, (pu - pd) * 0.5);
-}
-`;
-
-        // Render (Image) vertex shader
-        const renderVertex = `
-out vec2 vUv;
-void main() {
-  vUv = position.xy * 0.5 + 0.5;
-  gl_Position = vec4(position,1.0);
-}
-`;
-
-        // Render (Image) fragment shader
-        const renderFragment = `
+const renderVertex = `out vec2 vUv; void main(){vUv=position.xy*0.5+0.5; gl_Position=vec4(position,1.0);}`;
+const renderFragment = `
 precision highp float;
 in vec2 vUv;
 out vec4 fragColor;
-
-uniform sampler2D iChannel0; // simulation buffer
-uniform sampler2D iChannel1; // combined image+text canvas texture
+uniform sampler2D iChannel0;
+uniform sampler2D iChannel1;
 uniform vec2 iResolution;
 
-void main() {
-  vec4 sim = texture(iChannel0, vUv);
-  vec2 displaced = vUv + 0.2 * sim.zw;
+void main(){
+  vec4 sim = texture(iChannel0,vUv);
+  vec2 displaced = vUv + 0.2*sim.zw;
   vec4 color = texture(iChannel1, displaced);
-  vec3 normal = normalize(vec3(-sim.z, 0.2, -sim.w));
-  vec3 lightDir = normalize(vec3(-3.0, 10.0, 3.0));
-  float spec = pow(max(0.0, dot(normal, lightDir)), 60.0);
-  fragColor = color + vec4(vec3(spec), 0.0);
+  vec3 normal = normalize(vec3(-sim.z,0.2,-sim.w));
+  vec3 lightDir = normalize(vec3(-3.0,10.0,3.0));
+  float spec = pow(max(0.0,dot(normal,lightDir)),60.0);
+  fragColor = color + vec4(vec3(spec),0.0);
+}`;
+
+/* ============ Renderer & Camera ============ */
+const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const gl = renderer.getContext();
+if(!gl || !(gl instanceof WebGL2RenderingContext)){
+    document.getElementById('fallback').style.display='flex';
+    throw new Error('WebGL2 required');
 }
-`;
 
-        /* ============ Setup renderer, scenes, render targets ============ */
+const camera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+const drawingSize = new THREE.Vector2();
+renderer.getDrawingBufferSize(drawingSize);
+let W = drawingSize.x, H = drawingSize.y;
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
+const rtOptions = {format:THREE.RGBAFormat,type:THREE.FloatType,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,depthBuffer:false,stencilBuffer:false};
+let rtA = new THREE.WebGLRenderTarget(W,H,rtOptions);
+let rtB = new THREE.WebGLRenderTarget(W,H,rtOptions);
 
-        // Quick feature check (WebGL2 + float texture)
-        const gl = renderer.getContext();
-        if (!gl || !(gl instanceof WebGL2RenderingContext)) {
-            document.getElementById('fallback').style.display = 'flex';
-            throw new Error('WebGL2 required');
-        }
+/* ============ Mouse / Touch ============ */
+const mouse = new THREE.Vector3(0,0,0);
+function clientToDrawing(xClient,yClient){
+    renderer.getDrawingBufferSize(drawingSize);
+    const w=drawingSize.x, h=drawingSize.y;
+    const cssW=renderer.domElement.clientWidth, cssH=renderer.domElement.clientHeight;
+    const nx = (xClient/cssW)*w;
+    const ny = ((cssH-yClient)/cssH)*h;
+    return [nx, ny];
+}
+renderer.domElement.addEventListener('touchstart',e=>{e.preventDefault(); const t=e.touches[0]; [mouse.x,mouse.y]=clientToDrawing(t.clientX,t.clientY); mouse.z=1;},{passive:false});
+renderer.domElement.addEventListener('touchmove',e=>{e.preventDefault(); const t=e.touches[0]; [mouse.x,mouse.y]=clientToDrawing(t.clientX,t.clientY); mouse.z=1;},{passive:false});
+renderer.domElement.addEventListener('touchend',e=>{e.preventDefault(); mouse.z=0;},{passive:false});
+renderer.domElement.addEventListener('mousemove',e=>{[mouse.x,mouse.y]=clientToDrawing(e.clientX,e.clientY); mouse.z=1;});
+renderer.domElement.addEventListener('mouseleave',()=>{mouse.z=0;});
 
-        const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+/* ============ Shaders & Materials ============ */
+const simMaterial = new THREE.ShaderMaterial({
+    vertexShader: simVertex,
+    fragmentShader: simFragment,
+    uniforms:{
+        iChannel0:{value:rtA.texture},
+        iResolution:{value:new THREE.Vector2(W,H)},
+        iMouse:{value:mouse},
+        delta:{value:1.0}
+    },
+    glslVersion:THREE.GLSL3
+});
+const simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), simMaterial);
+const simScene = new THREE.Scene();
+simScene.add(simQuad);
 
-        // drawing buffer size helper (gets actual GL buffer size)
-        const drawingSize = new THREE.Vector2();
-        renderer.getDrawingBufferSize(drawingSize);
-        let W = drawingSize.x;
-        let H = drawingSize.y;
+let combinedTexture=null;
+const renderMaterial = new THREE.ShaderMaterial({
+    vertexShader: renderVertex,
+    fragmentShader: renderFragment,
+    uniforms:{
+        iChannel0:{value:rtB.texture},
+        iChannel1:{value:null},
+        iResolution:{value:new THREE.Vector2(W,H)}
+    },
+    glslVersion:THREE.GLSL3
+});
+const renderQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), renderMaterial);
+const renderScene = new THREE.Scene();
+renderScene.add(renderQuad);
 
-        // render targets (ping-pong)
-        const rtOptions = {
-            format: THREE.RGBAFormat,
-            type: THREE.FloatType,
-            minFilter: THREE.LinearFilter,
-            magFilter: THREE.LinearFilter,
-            depthBuffer: false,
-            stencilBuffer: false
-        };
-        let rtA = new THREE.WebGLRenderTarget(W, H, rtOptions);
-        let rtB = new THREE.WebGLRenderTarget(W, H, rtOptions);
+/* ============ Combined canvas ============ */
+const comboCanvas = document.createElement('canvas');
+const comboCtx = comboCanvas.getContext('2d');
+combinedTexture = new THREE.CanvasTexture(comboCanvas);
+combinedTexture.minFilter = THREE.LinearFilter;
+combinedTexture.magFilter = THREE.LinearFilter;
+combinedTexture.flipY = true;
+renderMaterial.uniforms.iChannel1.value = combinedTexture;
 
-        /* ================= Mouse & Touch ================== */
-        /* We use drawing-buffer coords for iMouse so texelFetch uses integers correctly. */
-        const mouse = new THREE.Vector3(0, 0, 0);
+const image = new Image();
+image.src='image.png'; // replace with your image
+image.crossOrigin='anonymous';
+image.onload=()=>{ resizeAndDraw(); startAnimation(); };
+image.onerror=()=>{ resizeAndDraw(); startAnimation(); };
 
-        // Helper to map client coords -> drawing-buffer coords
-        function clientToDrawing(xClient, yClient) {
-            // get renderer drawing buffer size again in case retina/zoom changed
-            renderer.getDrawingBufferSize(drawingSize);
-            const w = drawingSize.x;
-            const h = drawingSize.y;
-            // map from client space (CSS pixels) to drawing buffer pixels
-            const cssW = renderer.domElement.clientWidth;
-            const cssH = renderer.domElement.clientHeight;
-            const nx = (xClient / cssW) * w;
-            const ny = ((cssH - yClient) / cssH) * h; // flip Y to match shader coordinate convention
-            return [nx, ny, w, h];
-        }
+function drawCombo(w,h){
+    comboCanvas.width=w; comboCanvas.height=h;
+    comboCtx.clearRect(0,0,w,h);
+    if(image.complete && image.naturalWidth>0) comboCtx.drawImage(image,0,0,w,h);
+    else { comboCtx.fillStyle='#222'; comboCtx.fillRect(0,0,w,h); }
+    const base = Math.round(Math.min(w,h)*0.08);
+    comboCtx.fillStyle='#fef4b8';
+    comboCtx.font=`bold ${base}px sans-serif`;
+    comboCtx.textAlign='center';
+    comboCtx.textBaseline='middle';
+    comboCtx.fillText('slow motion', w/2, h/2);
+    combinedTexture.needsUpdate=true;
+}
 
-        // Add touch-action:none via CSS is already present. Attach listeners with passive:false.
-        renderer.domElement.addEventListener('touchstart', e => {
-            e.preventDefault();
-            const t = e.touches[0];
-            const [nx, ny] = clientToDrawing(t.clientX, t.clientY);
-            mouse.x = nx; mouse.y = ny; mouse.z = 1.0;
-        }, { passive: false });
+/* ============ Resize ============ */
+function resizeAndDraw(){
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.getDrawingBufferSize(drawingSize);
+    W=drawingSize.x; H=drawingSize.y;
+    rtA.setSize(W,H); rtB.setSize(W,H);
+    simMaterial.uniforms.iResolution.value.set(W,H);
+    renderMaterial.uniforms.iResolution.value.set(W,H);
+    drawCombo(W,H);
+}
+let resizeTimer=null;
+window.addEventListener('resize',()=>{
+    if(resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer=setTimeout(()=>{ resizeTimer=null; resizeAndDraw(); },80);
+},{passive:true});
 
-        renderer.domElement.addEventListener('touchmove', e => {
-            e.preventDefault();
-            const t = e.touches[0];
-            const [nx, ny] = clientToDrawing(t.clientX, t.clientY);
-            mouse.x = nx; mouse.y = ny; mouse.z = 1.0;
-        }, { passive: false });
+/* ============ Periodic Random Ripples ============ */
+function applyRandomRipple(){
+    const x=Math.floor(Math.random()*W);
+    const y=Math.floor(Math.random()*H);
+    mouse.x=x; mouse.y=y; mouse.z=1;
+    setTimeout(()=>{ mouse.z=0; },50);
+}
+setInterval(applyRandomRipple, 600); // ripple every 0.6s
 
-        renderer.domElement.addEventListener('touchend', e => {
-            e.preventDefault();
-            mouse.z = 0.0;
-        }, { passive: false });
+/* ============ Animation Loop ============ */
+let running=false;
+function startAnimation(){
+    if(running) return;
+    running=true;
 
-        // also keep mouse support for desktop
-        renderer.domElement.addEventListener('mousemove', e => {
-            const [nx, ny] = clientToDrawing(e.clientX, e.clientY);
-            mouse.x = nx; mouse.y = ny; mouse.z = 1.0;
-        });
-        renderer.domElement.addEventListener('mouseleave', () => { mouse.z = 0.0; });
+    function frame(){
+        drawCombo(W,H); // always update canvas first
+        simMaterial.uniforms.iChannel0.value = rtA.texture;
+        renderer.setRenderTarget(rtB);
+        renderer.render(simScene, camera);
 
-        /* ================= Shaders & Materials ================== */
+        renderMaterial.uniforms.iChannel0.value = rtB.texture;
+        renderer.setRenderTarget(null);
+        renderer.render(renderScene, camera);
 
-        // Simulation material
-        const simMaterial = new THREE.ShaderMaterial({
-            vertexShader: simVertex,
-            fragmentShader: simFragment,
-            uniforms: {
-                iChannel0: { value: rtA.texture },
-                iResolution: { value: new THREE.Vector2(W, H) },
-                iMouse: { value: mouse },
-                delta: { value: 1.0 }
-            },
-            glslVersion: THREE.GLSL3
-        });
-        const simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), simMaterial);
-        const simScene = new THREE.Scene();
-        simScene.add(simQuad);
-
-        // Render material (iChannel1 = combined image+text canvas texture)
-        let combinedTexture = null;
-        const renderMaterial = new THREE.ShaderMaterial({
-            vertexShader: renderVertex,
-            fragmentShader: renderFragment,
-            uniforms: {
-                iChannel0: { value: rtB.texture },
-                iChannel1: { value: null },
-                iResolution: { value: new THREE.Vector2(W, H) }
-            },
-            glslVersion: THREE.GLSL3
-        });
-        const renderQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), renderMaterial);
-        const renderScene = new THREE.Scene();
-        renderScene.add(renderQuad);
-
-        /* =============== Combined image + text canvas ===============
-        
-           We create a canvas, draw the image scaled to the drawing-buffer size
-           and then draw the text centered on top. We update the canvas whenever
-           the drawing buffer size changes so the texture matches the GL buffer.
-        */
-
-        const comboCanvas = document.createElement('canvas');
-        const comboCtx = comboCanvas.getContext('2d');
-
-        // create a texture immediately (so material always has something), we'll update later
-        combinedTexture = new THREE.CanvasTexture(comboCanvas);
-        combinedTexture.minFilter = THREE.LinearFilter;
-        combinedTexture.magFilter = THREE.LinearFilter;
-        combinedTexture.flipY = true; // align with texture coords
-        renderMaterial.uniforms.iChannel1.value = combinedTexture;
-
-        // change this filename if needed
-        const image = new Image();
-        image.src = 'image.png'; // <-- put image.png in same folder
-        image.crossOrigin = 'anonymous';
-
-        image.onload = () => {
-            // draw initially and then start animation
-            resizeAndDraw();   // will set sizes and draw at proper drawing-buffer resolution
-            startAnimation();
-        };
-
-        image.onerror = (err) => {
-            console.warn('Image failed to load:', err);
-            // still start animation with blank canvas so page doesn't stay empty
-            resizeAndDraw();
-            startAnimation();
-        };
-
-        /* ============= draw helper (draws to comboCanvas at GL drawing size) ============= */
-
-        function drawCombo(w, h) {
-            // set canvas to GL drawing-buffer size
-            comboCanvas.width = w;
-            comboCanvas.height = h;
-
-            // draw image stretched to fill canvas (you can change to cover/preserve aspect if desired)
-            try {
-                comboCtx.clearRect(0, 0, w, h);
-                if (image.complete && image.naturalWidth > 0) {
-                    comboCtx.drawImage(image, 0, 0, w, h);
-                } else {
-                    // fallback: fill background
-                    comboCtx.fillStyle = '#222';
-                    comboCtx.fillRect(0, 0, w, h);
-                }
-
-                // draw text centered — font scales with min dimension
-                const base = Math.round(Math.min(w, h) * 0.08); // 8% of min dim -> tune as needed
-                comboCtx.fillStyle = '#fef4b8';
-                comboCtx.font = `bold ${base}px sans-serif`;
-                comboCtx.textAlign = 'center';
-                comboCtx.textBaseline = 'middle';
-
-                // two lines
-                const line1 = 'slow motion';
-
-                // small vertical offset so lines sit nicely
-                const lineHeight = base * 1.05;
-                comboCtx.fillText(line1, w / 2, h / 2 - lineHeight * 0.4);
-
-            } catch (e) {
-                console.error('drawCombo error', e);
-            }
-
-            // notify Three.js to upload updated canvas to GPU
-            combinedTexture.needsUpdate = true;
-        }
-
-        /* ============= handle resizing robustly ============= */
-
-        function resizeAndDraw() {
-            // set renderer to CSS size
-            renderer.setSize(window.innerWidth, window.innerHeight);
-
-            // get actual drawing-buffer size (accounts for devicePixelRatio)
-            renderer.getDrawingBufferSize(drawingSize);
-            const w = drawingSize.x;
-            const h = drawingSize.y;
-
-            // update global sizes and render targets
-            W = w; H = h;
-            rtA.setSize(W, H);
-            rtB.setSize(W, H);
-
-            // update shader uniforms
-            simMaterial.uniforms.iResolution.value.set(W, H);
-            renderMaterial.uniforms.iResolution.value.set(W, H);
-
-            // redraw combined canvas at the same GL resolution
-            drawCombo(W, H);
-        }
-
-        // Wire up a resize listener using a debounce to avoid thrashing
-        let resizeTimer = null;
-        window.addEventListener('resize', () => {
-            if (resizeTimer) clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                resizeTimer = null;
-                resizeAndDraw();
-            }, 80);
-        }, { passive: true });
-
-        /* ================= animation loop (starts only after image load) ================ */
-
-        let running = false;
-        function startAnimation() {
-            if (running) return;
-            running = true;
-
-            function frame() {
-                // feed the sim shader the previous buffer texture
-                simMaterial.uniforms.iChannel0.value = rtA.texture;
-
-                // render simulation into rtB (ping)
-                renderer.setRenderTarget(rtB);
-                renderer.render(simScene, camera);
-
-                // render final using rtB as iChannel0 and combinedTexture as iChannel1
-                renderMaterial.uniforms.iChannel0.value = rtB.texture;
-                renderer.setRenderTarget(null);
-                renderer.render(renderScene, camera);
-
-                // swap targets
-                const tmp = rtA; rtA = rtB; rtB = tmp;
-
-                requestAnimationFrame(frame);
-            }
-
-            requestAnimationFrame(frame);
-        }
-
-        /* ================ initial draw in case image loads very quickly ================ */
-        resizeAndDraw();
-
-    </script>
+        [rtA, rtB] = [rtB, rtA]; // swap
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+}
+resizeAndDraw();
+</script>
 </body>
-
 </html>

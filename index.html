@@ -1,22 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Slow Motion Intro</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #000; }
-    canvas { display: block; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Water Effect with Text</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; }
+  canvas { display: block; }
+</style>
 </head>
 <body>
 
 <script type="module">
-
-// ---- Import Three.js from CDN ----
 import * as THREE from 'https://unpkg.com/three@0.164.0/build/three.module.js';
 
-// ---- Shaders ----
+// ----------------- SHADERS -----------------
 const simulationVertexShader = `
 out vec2 vUv;
 void main() {
@@ -86,59 +84,47 @@ void main(){
 }
 `;
 
-// ---- Renderer & Scene ----
+// ----------------- RENDERER -----------------
 const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const camera = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+let width = window.innerWidth*window.devicePixelRatio;
+let height = window.innerHeight*window.devicePixelRatio;
 
-const width = window.innerWidth*window.devicePixelRatio;
-const height = window.innerHeight*window.devicePixelRatio;
-
-// ---- Render Targets ----
+// ----------------- RENDER TARGETS -----------------
 const options = { format: THREE.RGBAFormat, type: THREE.FloatType, minFilter:THREE.LinearFilter, magFilter:THREE.LinearFilter };
 let rtA = new THREE.WebGLRenderTarget(width,height,options);
 let rtB = new THREE.WebGLRenderTarget(width,height,options);
 
-// ---- Load Image ----
-const loader = new THREE.TextureLoader();
-const imageTexture = await loader.loadAsync('image.png'); // <- Replace with your image path
-imageTexture.minFilter = THREE.LinearFilter;
-imageTexture.magFilter = THREE.LinearFilter;
-
-// ---- Mouse ----
+// ----------------- MOUSE / TOUCH -----------------
 const mouse = new THREE.Vector3();
 renderer.domElement.addEventListener("mousemove", e => {
     mouse.x = e.clientX*window.devicePixelRatio;
-    mouse.y = (window.innerHeight-e.clientY)*window.devicePixelRatio;
+    mouse.y = (window.innerHeight - e.clientY)*window.devicePixelRatio;
     mouse.z = 1.0;
 });
-renderer.domElement.addEventListener("mouseleave",()=>mouse.z=0.0);
+renderer.domElement.addEventListener("mouseleave", ()=>{ mouse.z = 0.0; });
 
-// ---- Touch ----
 // Touch support
-renderer.domElement.addEventListener("touchstart", e => {
-    const touch = e.touches[0];
-    mouse.x = touch.clientX * window.devicePixelRatio;
-    mouse.y = (window.innerHeight - touch.clientY) * window.devicePixelRatio;
+renderer.domElement.addEventListener("touchstart", e=>{
+    const t = e.touches[0];
+    mouse.x = t.clientX*window.devicePixelRatio;
+    mouse.y = (window.innerHeight - t.clientY)*window.devicePixelRatio;
     mouse.z = 1.0;
 });
-
-renderer.domElement.addEventListener("touchmove", e => {
-    e.preventDefault(); // prevent scrolling
-    const touch = e.touches[0];
-    mouse.x = touch.clientX * window.devicePixelRatio;
-    mouse.y = (window.innerHeight - touch.clientY) * window.devicePixelRatio;
+renderer.domElement.addEventListener("touchmove", e=>{
+    e.preventDefault();
+    const t = e.touches[0];
+    mouse.x = t.clientX*window.devicePixelRatio;
+    mouse.y = (window.innerHeight - t.clientY)*window.devicePixelRatio;
     mouse.z = 1.0;
-}, { passive: false });
+},{passive:false});
+renderer.domElement.addEventListener("touchend",()=>{ mouse.z = 0.0; });
 
-renderer.domElement.addEventListener("touchend", e => {
-    mouse.z = 0.0;
-});
-
-// ---- Simulation ----
+// ----------------- SIMULATION SCENE -----------------
 const simMaterial = new THREE.ShaderMaterial({
     vertexShader: simulationVertexShader,
     fragmentShader: simulationFragmentShader,
@@ -150,52 +136,94 @@ const simMaterial = new THREE.ShaderMaterial({
     },
     glslVersion: THREE.GLSL3
 });
-
 const simQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), simMaterial);
 const simScene = new THREE.Scene();
 simScene.add(simQuad);
 
-// ---- Render ----
+// ----------------- RENDER SCENE -----------------
+let combinedTexture; // will hold image+text
 const renderMaterial = new THREE.ShaderMaterial({
     vertexShader: renderVertexShader,
     fragmentShader: renderFragmentShader,
     uniforms: {
         iChannel0: { value: rtB.texture },
-        iChannel1: { value: imageTexture },
+        iChannel1: { value: null },
         iResolution: { value: new THREE.Vector2(width,height) }
     },
     glslVersion: THREE.GLSL3
 });
-
 const renderQuad = new THREE.Mesh(new THREE.PlaneGeometry(2,2), renderMaterial);
 const scene = new THREE.Scene();
 scene.add(renderQuad);
 
-// ---- Animate ----
-function animate(){
-    simMaterial.uniforms.iChannel0.value = rtA.texture;
-    renderer.setRenderTarget(rtB);
-    renderer.render(simScene,camera);
-    renderMaterial.uniforms.iChannel0.value = rtB.texture;
-    renderer.setRenderTarget(null);
-    renderer.render(scene,camera);
-    [rtA,rtB] = [rtB,rtA];
-    requestAnimationFrame(animate);
-}
-animate();
+// ----------------- IMAGE + TEXT -----------------
+const image = new Image();
+image.src = 'image.png'; // your image file
+image.onload = () => {
+    const textCanvas = document.createElement('canvas');
+    const ctx = textCanvas.getContext('2d');
 
-// ---- Resize ----
-window.addEventListener('resize',()=>{
-    const w = window.innerWidth*window.devicePixelRatio;
-    const h = window.innerHeight*window.devicePixelRatio;
-    renderer.setSize(window.innerWidth,window.innerHeight);
-    rtA.setSize(w,h);
-    rtB.setSize(w,h);
-    simMaterial.uniforms.iResolution.value.set(w,h);
-    renderMaterial.uniforms.iResolution.value.set(w,h);
-});
+    function drawImageAndText() {
+        // update canvas size
+        textCanvas.width = window.innerWidth * window.devicePixelRatio;
+        textCanvas.height = window.innerHeight * window.devicePixelRatio;
+        const canvasWidth = textCanvas.width;
+        const canvasHeight = textCanvas.height;
 
+        ctx.clearRect(0,0,canvasWidth,canvasHeight);
+        ctx.drawImage(image,0,0,canvasWidth,canvasHeight);
+
+        // draw centered text
+        ctx.fillStyle = '#fff5c4';
+        const fontSize = Math.round(45*window.devicePixelRatio);
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('slow motion', canvasWidth/2, canvasHeight/2 - 200);
+
+        if(combinedTexture) combinedTexture.needsUpdate = true;
+    }
+
+    drawImageAndText();
+
+    combinedTexture = new THREE.CanvasTexture(textCanvas);
+    combinedTexture.minFilter = THREE.LinearFilter;
+    combinedTexture.magFilter = THREE.LinearFilter;
+    renderMaterial.uniforms.iChannel1.value = combinedTexture;
+
+    // ----------------- RESIZE -----------------
+    window.addEventListener('resize', ()=>{
+        width = window.innerWidth*window.devicePixelRatio;
+        height = window.innerHeight*window.devicePixelRatio;
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        rtA.setSize(width,height);
+        rtB.setSize(width,height);
+
+        simMaterial.uniforms.iResolution.value.set(width,height);
+        renderMaterial.uniforms.iResolution.value.set(width,height);
+
+        drawImageAndText();
+    });
+
+    // ----------------- ANIMATE -----------------
+    let frame = 0;
+    function animate(){
+        simMaterial.uniforms.iChannel0.value = rtA.texture;
+        renderer.setRenderTarget(rtB);
+        renderer.render(simScene,camera);
+
+        renderMaterial.uniforms.iChannel0.value = rtB.texture;
+        renderer.setRenderTarget(null);
+        renderer.render(scene,camera);
+
+        [rtA,rtB] = [rtB,rtA];
+
+        frame++;
+        requestAnimationFrame(animate);
+    }
+    animate();
+};
 </script>
-
 </body>
 </html>

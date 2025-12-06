@@ -269,7 +269,7 @@ void main() {
         combinedTexture = new THREE.CanvasTexture(comboCanvas);
         combinedTexture.minFilter = THREE.LinearFilter;
         combinedTexture.magFilter = THREE.LinearFilter;
-        combinedTexture.flipY = false; // align with texture coords
+        combinedTexture.flipY = true; // align with texture coords
         renderMaterial.uniforms.iChannel1.value = combinedTexture;
 
         // change this filename if needed
@@ -316,13 +316,11 @@ void main() {
                 comboCtx.textBaseline = 'middle';
 
                 // two lines
-                const line1 = 'Blairstown, NJ';
-                const line2 = 'September 25-27 2026';
+                const line1 = 'slow motion';
 
                 // small vertical offset so lines sit nicely
                 const lineHeight = base * 1.05;
                 comboCtx.fillText(line1, w / 2, h / 2 - lineHeight * 0.4);
-                comboCtx.fillText(line2, w / 2, h / 2 + lineHeight * 0.8);
 
             } catch (e) {
                 console.error('drawCombo error', e);
